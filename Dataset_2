@@ -1,0 +1,134 @@
+'''
+    自定义数据集
+
+    图像数据 ➡ 图像索引文件 ➡ 使用Dataset构建数据集 ➡ 使用DataLoader读取数据
+    步骤：1、图像数据本地存储
+         2、索引文件制作，记录图像的文件名和标签信息。
+         3、将图像按照训练集和测试集分别存放
+         4、写一个的子类来定义数据集
+         5、构建训练集和测试集 train_dataset test_dataset
+         6、使用DataLoader批量读取数据
+
+    @tips：__getitem__() 函数，该函数接收一个index，也就是索引值。只要是具有索引的数据类型都能够被读取，如list，Series，Dataframe等形式。
+            为了方便，我们一般采用list形式将文件代入函数中，该list中的每一个元素包含了图片的路径或标签等信息，以方便index用来逐一读取单一样本数据。
+            在__getitem__() 函数内部，我们可以选择性的对图像和标签进行预处理等操作，最后返回图像数据和标签。
+'''
+
+import os
+from skimage import io
+import torchvision.datasets.mnist as mnist
+import pandas as pd
+import numpy as np
+from PIL import Image
+import torch
+from torch.utils.data import Dataset
+from torchvision import transforms
+
+# 数据文件读取
+root = r'./MNIST/'  # MNIST解压文件根目录
+train_set = (
+    mnist.read_image_file(os.path.join(root, 'train-images-idx3-ubyte')),
+    mnist.read_label_file(os.path.join(root, 'train-labels-idx1-ubyte'))
+)
+test_set = (
+    mnist.read_image_file(os.path.join(root, 't10k-images-idx3-ubyte')),
+    mnist.read_label_file(os.path.join(root, 't10k-labels-idx1-ubyte'))
+)
+
+# 数据量展示
+print('train set:', train_set[0].size())
+print('test set:', test_set[0].size())
+
+
+def convert_to_img(save_path, train=True):
+    '''
+    将图片存储在本地，并制作索引文件
+    @para: save_path  图像保存路径，将在路径下创建train、test文件夹分别存储训练集和测试集
+    @para: train      默认True，本地存储训练集图像，否则本地存储测试集图像
+    '''
+    if train:
+        f = open(save_path + 'train.txt', 'w')
+        data_path = save_path + '/train/'
+        if (not os.path.exists(data_path)):
+            os.makedirs(data_path)
+        for i, (img, label) in enumerate(zip(train_set[0], train_set[1])):
+            img_path = data_path + str(i) + '.jpg'
+            io.imsave(img_path, img.numpy())
+            int_label = str(label).replace('tensor(', '')
+            int_label = int_label.replace(')', '')
+            f.write(str(i) + '.jpg' + ',' + str(int_label) + '\n')
+        f.close()
+    else:
+        f = open(save_path + 'test.txt', 'w')
+        data_path = save_path + '/test/'
+        if (not os.path.exists(data_path)):
+            os.makedirs(data_path)
+        for i, (img, label) in enumerate(zip(test_set[0], test_set[1])):
+            img_path = data_path + str(i) + '.jpg'
+            io.imsave(img_path, img.numpy())
+            int_label = str(label).replace('tensor(', '')
+            int_label = int_label.replace(')', '')
+            f.write(str(i) + '.jpg' + ',' + str(int_label) + '\n')
+        f.close()
+
+
+# 根据需求本地存储训练集或测试集
+save_path = r'./MNIST/mnist_data/'
+convert_to_img(save_path, True)
+convert_to_img(save_path, False)
+
+
+class MnistDataset(Dataset):
+
+    def __init__(self, image_path, image_label, transform=None):
+        super(MnistDataset, self).__init__()
+        self.image_path = image_path  # 初始化图像路径列表
+        self.image_label = image_label  # 初始化图像标签列表
+        self.transform = transform  # 初始化数据增强方法
+
+    def __getitem__(self, index):
+        """
+        获取对应index的图像，并视情况进行数据增强
+        """
+        image = Image.open(self.image_path[index])
+        image = np.array(image)
+        label = float(self.image_label[index])
+
+        if self.transform is not None:
+            image = self.transform(image)
+
+        return image, torch.tensor(label)
+
+    def __len__(self):
+        return len(self.image_path)
+
+
+def get_path_label(img_root, label_file_path):
+    """
+    获取数字图像的路径和标签并返回对应列表
+    @para: img_root: 保存图像的根目录
+    @para:label_file_path: 保存图像标签数据的文件路径 .csv 或 .txt 分隔符为','
+    @return: 图像的路径列表和对应标签列表
+    """
+    data = pd.read_csv(label_file_path, names=['img', 'label'])
+    data['img'] = data['img'].apply(lambda x: img_root + x)
+    return data['img'].tolist(), data['label'].tolist()
+
+
+# 获取训练集路径列表和标签列表
+train_data_root = './dataset/MNIST/mnist_data/train/'
+train_label = './dataset/MNIST/mnist_data/train.txt'
+train_img_list, train_label_list = get_path_label(train_data_root, train_label)
+# 训练集dataset
+train_dataset = MnistDataset(train_img_list,
+                             train_label_list,
+                             transform=transforms.Compose([transforms.ToTensor()]))
+
+# 获取测试集路径列表和标签列表
+test_data_root = './dataset/MNIST/mnist_data/test/'
+test_label = './dataset/MNIST/mnist_data/test.txt'
+test_img_list, test_label_list = get_path_label(test_data_root, test_label)
+# 测试集sdataset
+test_dataset = MnistDataset(test_img_list,
+                            test_label_list,
+                            transform=transforms.Compose([transforms.ToTensor()]))
