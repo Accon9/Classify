@@ -1,0 +1,86 @@
+'''
+
+    预测模型
+
+    对测试图像进行预处理 ➡ 预测图像通过模型，检索最高预测值
+
+'''
+import torch
+from torchvision.transforms import transforms
+import requests
+import shutil
+from io import open
+import os
+from PIL import Image
+import json
+
+def predict_image(image_path):
+
+    #   加载预测图像
+    print("Prediction in progress")
+    image = Image.open(image_path)
+
+    # 定义预测图像的转换
+    transformation = transforms.Compose([
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
+
+    # 预处理图像
+    image_tensor = transformation(image).float()
+
+    # 扩充维度，读入的图片只有高度、宽度、kenerl，我们添加 batch 维度
+    image_tensor = image_tensor.unsqueeze_(0)
+
+    if torch.cuda.is_available():
+        image_tensor.cuda()
+
+    # 将输入变为变量
+    input = image_tensor
+
+    # 预测图像的类
+    output = model(input)
+
+    index = output.data.numpy().argmax()
+
+    return index
+
+if __name__ == "__main__":
+
+    imagefile = "image.png"
+    imagepath = os.path.join(os.getcwd(), imagefile)
+    #   对图像进行操作
+    if not os.path.exists(imagepath):
+        data = requests.get(
+            "https://github.com/OlafenwaMoses/ImageAI/raw/master/images/3.jpg", stream=True)
+
+        with open(imagepath, "wb") as file:
+            shutil.copyfileobj(data.raw, file)
+
+        del data
+
+    index_file = "class_index_map.json"
+
+    indexpath = os.path.join(os.getcwd(), index_file)
+    # 对索引进行操作
+    if not os.path.exists(indexpath):
+        data = requests.get('https://github.com/OlafenwaMoses/ImageAI/raw/master/imagenet_class_index.json')
+
+        with open(indexpath, "w", encoding="utf-8") as file:
+            file.write(data.text)
+
+    class_map = json.load(open(indexpath))
+
+    # 运行预测类并且得到预测的索引值
+    index = predict_image(imagepath)
+
+    prediction = class_map[str(index)][1]
+
+    checkpoint = torch.load("pathtosavemodel")
+    model = SimpleNet(num_classes=10)   #   初始化网络
+
+    model.load_state_dict(checkpoint)   #   载入网络模型
+    model.eval()
+
+    print("Predicted Class ", prediction)
